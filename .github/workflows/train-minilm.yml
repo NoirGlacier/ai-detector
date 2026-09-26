@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: "Train (script tự cài deps — torch CPU, optimum, onnxruntime...)"
+      - name: "Train (script tự cài deps — torch CPU, transformers, onnx, onnxruntime, onnxscript)"
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: chiminh652010/ai-detector-v2
