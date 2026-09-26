@@ -18,7 +18,6 @@ try:
     import joblib
     import onnxruntime
     import transformers
-    import optimum
     import torch
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.model_selection import train_test_split
@@ -209,30 +208,59 @@ def dl(url, path):
         urllib.request.urlretrieve(url, path)
 
 # ============ BƯỚC 0: XUẤT ONNX INT8 (fail sớm nếu lỗi) ============
-def export_embedder():
-    from transformers import AutoTokenizer
-    tz = AutoTokenizer.from_pretrained(EMB_MODEL)
+def export_embedder(model=None, tokenizer=None):
+    import torch
+    from transformers import AutoTokenizer, AutoModel
+    tz = tokenizer or AutoTokenizer.from_pretrained(EMB_MODEL)
     d = f"{TMP}/e5_onnx"
     os.makedirs(d, exist_ok=True)
-    ok = False
+    m = model or AutoModel.from_pretrained(EMB_MODEL)
+    m.eval()
+
+    class _Wrap(torch.nn.Module):
+        def __init__(self, mod):
+            super().__init__()
+            self.mod = mod
+        def forward(self, input_ids, attention_mask):
+            return self.mod(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+
+    wm = _Wrap(m)
+    wm.eval()
+    enc = tz([EMB_PREFIX + "hello world"], return_tensors="pt", padding=True,
+             truncation=True, max_length=EMB_MAXLEN)
+    ids, att = enc["input_ids"], enc["attention_mask"]
+    kwargs = dict(input_names=["input_ids", "attention_mask"],
+                  output_names=["last_hidden_state"],
+                  dynamic_axes={"input_ids": {0: "batch", 1: "seq"},
+                                "attention_mask": {0: "batch", 1: "seq"},
+                                "last_hidden_state": {0: "batch", 1: "seq"}},
+                  opset_version=18, do_constant_folding=True)
     try:
-        from optimum.onnxruntime import ORTModelForFeatureExtraction
-        m = ORTModelForFeatureExtraction.from_pretrained(EMB_MODEL, export=True)
-        m.save_pretrained(d)
-        ok = os.path.exists(f"{d}/model.onnx")
+        with torch.no_grad():
+            torch.onnx.export(wm, (ids, att), f"{d}/model.onnx", **kwargs)
     except Exception as e:
-        log(f"  optimum API lỗi ({str(e)[:120]}), thử CLI...")
-    if not ok:
-        import subprocess
-        r = subprocess.run(["optimum-cli", "export", "onnx", "--task", "feature-extraction",
-                            "--model", EMB_MODEL, d], capture_output=True, text=True)
-        ok = os.path.exists(f"{d}/model.onnx")
-        if not ok:
-            log(r.stdout[-1500:] if r.stdout else "", r.stderr[-1500:] if r.stderr else "")
-            raise RuntimeError("Xuất ONNX thất bại")
-    log(f"  ONNX fp32: {os.path.getsize(d + '/model.onnx')/1e6:.0f} MB → quantize int8...")
+        log(f"  torch.onnx.export thường lỗi ({str(e)[:100]}), thử dynamo=True...")
+        with torch.no_grad():
+            torch.onnx.export(wm, (ids, att), f"{d}/model.onnx", dynamo=True, **kwargs)
+    if not os.path.exists(f"{d}/model.onnx"):
+        raise RuntimeError("Xuất ONNX thất bại")
+    # torch>=2.14 tách weights ra file .data → gộp lại thành 1 file duy nhất
+    import onnx
+    om = onnx.load(f"{d}/model.onnx")
+    for t in om.graph.initializer:
+        t.ClearField("external_data")
+        t.data_location = onnx.TensorProto.DEFAULT
+    onnx.save_model(om, f"{d}/model_full.onnx")
+    del om
+    for f in ("model.onnx", "model.onnx.data", "model-inferred.onnx"):
+        try:
+            os.remove(f"{d}/{f}")
+        except OSError:
+            pass
+    log(f"  ONNX fp32 (đã gộp): {os.path.getsize(d + '/model_full.onnx')/1e6:.0f} MB → quantize int8...")
     from onnxruntime.quantization import quantize_dynamic, QuantType
-    quantize_dynamic(f"{d}/model.onnx", f"{OUT}/minilm.onnx", weight_type=QuantType.QInt8)
+    quantize_dynamic(f"{d}/model_full.onnx", f"{OUT}/minilm.onnx", weight_type=QuantType.QInt8)
+    os.remove(f"{d}/model_full.onnx")
     tz.backend_tokenizer.save(f"{OUT}/minilm_tokenizer.json")
     log(f"  ✅ minilm.onnx int8: {os.path.getsize(OUT + '/minilm.onnx')/1e6:.0f} MB | tokenizer.json OK")
     return tz
@@ -600,6 +628,6 @@ if __name__ == "__main__":
     if not DEPS_OK:
         os.system(f"{sys.executable} -m pip install -q numpy pandas pyarrow scipy scikit-learn joblib huggingface_hub")
         os.system(f"{sys.executable} -m pip install -q torch --index-url https://download.pytorch.org/whl/cpu")
-        os.system(f"{sys.executable} -m pip install -q transformers optimum onnx onnxruntime")
+        os.system(f"{sys.executable} -m pip install -q transformers onnx onnxruntime")
         os.execv(sys.executable, [sys.executable] + sys.argv)
     main()
