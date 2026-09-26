@@ -1,0 +1,34 @@
+name: Train MiniLM ensemble
+# Ensemble TF-IDF + multilingual-e5-small (ONNX int8). Chạy tay: tab Actions → Run workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest        # 4 vCPU, 16 GB RAM — free không giới hạn cho repo public
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Train (script tự cài deps: torch CPU, optimum, onnxruntime...)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: chiminh652010/ai-detector-v2
+          OUT_DIR: out
+        run: python train_big/train_minilm.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: minilm-bundle
+          path: |
+            out/detector.joblib
+            out/metrics.json
+            out/minilm.onnx
+            out/minilm_tokenizer.json
+          retention-days: 7
+          if-no-files-found: error
