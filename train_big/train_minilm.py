@@ -628,6 +628,6 @@ if __name__ == "__main__":
     if not DEPS_OK:
         os.system(f"{sys.executable} -m pip install -q numpy pandas pyarrow scipy scikit-learn joblib huggingface_hub")
         os.system(f"{sys.executable} -m pip install -q torch --index-url https://download.pytorch.org/whl/cpu")
-        os.system(f"{sys.executable} -m pip install -q transformers onnx onnxruntime")
+        os.system(f"{sys.executable} -m pip install -q transformers onnx onnxruntime onnxscript")
         os.execv(sys.executable, [sys.executable] + sys.argv)
     main()
