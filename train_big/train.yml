@@ -1,0 +1,32 @@
+name: Train AI Detector v4 (multi-source + synthetic 2026)
+# Chạy tay: tab Actions → Run workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest        # 4 vCPU, 16 GB RAM — free không giới hạn cho repo public
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cài dependencies
+        run: pip install -q numpy pandas pyarrow scipy scikit-learn joblib huggingface_hub
+
+      - name: Train (tải 3 nguồn → train → push HF Hub)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: chiminh652010/ai-detector-v2
+          OUT_DIR: out
+        run: python train_big/train_v4.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: detector-bundle
+          path: out/
+          retention-days: 7
