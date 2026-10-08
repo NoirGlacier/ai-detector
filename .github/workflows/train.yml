@@ -1,4 +1,4 @@
-name: Train AI Detector (multi-source)
+name: Train AI Detector v4 (multi-source + synthetic 2026)
 # Chạy tay: tab Actions → Run workflow
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: chiminh652010/ai-detector-v2
           OUT_DIR: out
-        run: python train_big/train_job.py
+        run: python train_big/train_v4.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
